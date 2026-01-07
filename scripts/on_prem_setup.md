@@ -1,0 +1,65 @@
+# Cluster Checklist
+
+## Setup Cluster
+Use `install_k8s_node.sh` to install on all nodes.
+
+## Environment
+```bash
+export GHCR_TOKEN=<your_token>
+```
+
+## Deploy Tyr
+```bash
+kubectl create namespace tyr-system
+kubectl create secret docker-registry ghcr-secret   --docker-server=ghcr.io   --docker-username=ascendra-networks   --docker-password="$GHCR_TOKEN"   --namespace tyr-system
+# 2. Login to Helm OCI registry
+echo "$GHCR_TOKEN" | helm registry login ghcr.io -u ascendra-networks --password-stdin
+# 3. Install directly from OCI registry
+helm install tyr oci://ghcr.io/ascendra-networks/charts/tyr   --version 1.0.3   --namespace tyr-system   --create-namespace   --set github.createSecret=true   --set github.token="$GHCR_TOKEN"   --set imagePullSecrets[0].name=ghcr-secret
+# 4. Apply CR
+kubectl apply -f - <<EOF
+apiVersion: infra.ascendra.cloud/v1alpha1
+kind: InfraManager
+metadata:
+  labels:
+    app.kubernetes.io/name: tyr
+    app.kubernetes.io/managed-by: kustomize
+  name: inframanager-sample
+  namespace: tyr-system
+spec:
+  kubeOvn:
+    version: ""
+  kubeVirt:
+    imageTag: v1.6.0-ascendra.1
+    imagePullPolicy: Always
+    cpuAllocationRatio: 8
+    githubTokenRef:
+      name: tyr-github  # Secret must be in same namespace as InfraManager
+      key: token
+EOF
+```
+
+## Deploy Metrics
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/args/-",
+    "value": "--kubelet-insecure-tls"
+  }
+]'
+kubectl wait --for=condition=available --timeout=60s deployment/metrics-server -n kube-system
+```
+
+## Deploy Dashboard
+```bash
+helm install ascendra-cluster-dashboard   oci://ghcr.io/ascendra-networks/charts/ascendra-cluster-dashboard   --version 1.0.0   --namespace ascendra-dashboard   --create-namespace   --set github.createSecret=true   --set github.token="$GHCR_TOKEN"
+kubectl port-forward -n ascendra-dashboard service/ascendra-cluster-dashboard-frontend 8080:80
+```
+
+## Persistent Storage
+Longhorn with Local Disks (https://claude.ai/share/e5eb215b-ea38-430b-99dc-85fc019cabb9?)
+
+## Generate VMs
+Use `generate-vms.sh` as baseline for VMs yaml.
