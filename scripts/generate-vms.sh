@@ -300,6 +300,10 @@ spec:
       labels:
         kubevirt.io/vm: ${vm_name}
         app: ${vm_name}
+      annotations:
+        # MANDATORY for seamless live migration in Kube-OVN
+        kubevirt.io/allow-pod-bridge-network-live-migration: "true"
+        #"ovn.kubernetes.io/logical_switch": "vm-vpc-subnet"
     spec:
       domain:
         cpu:
@@ -331,11 +335,7 @@ EOF
               bus: virtio
           interfaces:
           - name: default
-            masquerade: {}
-            ports:
-            - name: ssh
-              port: 22
-              protocol: TCP
+            bridge: {}
         machine:
           type: q35
         resources:
