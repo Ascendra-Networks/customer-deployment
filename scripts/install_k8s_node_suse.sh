@@ -50,7 +50,6 @@ fi
 echo "Selected role: $ROLE"
 echo "Swap enabled: $ENABLE_SWAP"
 
-# Step 2: Configure swap based on flag
 if [ "$ENABLE_SWAP" = true ]; then
   echo "=== Configuring system WITH swap support ==="
   
@@ -96,6 +95,9 @@ sudo systemctl start docker
 
 sudo zypper install -y curl ca-certificates gnupg openvswitch python3 jq conntrack-tools
 
+# Note: firewalld installation is optional - we will disable it by default for Kubernetes
+# sudo zypper install -y firewalld
+
 # Configure containerd
 sudo mkdir -p /etc/containerd
 sudo sh -c "containerd config default > /etc/containerd/config.toml"
@@ -103,28 +105,29 @@ sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/conf
 sudo systemctl restart containerd
 sudo systemctl enable containerd
 
+# Disable firewalld to avoid blocking Kubernetes networking (like Ubuntu with no firewall)
+echo "=== Disabling firewalld (Kubernetes will manage network security) ==="
+sudo systemctl stop firewalld 2>/dev/null || true
+sudo systemctl disable firewalld 2>/dev/null || true
+
 # Step 6: Install Kubernetes components
 echo "=== Adding Kubernetes repository ==="
 
-# Create keyrings directory
-sudo mkdir -p /etc/apt/keyrings
+# Import the GPG key first
+sudo rpm --import https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key
 
-# Add Kubernetes repository for SUSE
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-# For SUSE, we can use the rpm repository instead
+# Add Kubernetes repository for SUSE (using rpm repo)
 sudo zypper addrepo --gpgcheck --refresh --priority 120 \
-  --gpgkey https://pkgs.k8s.io/core:/stable:/v1.31/rpm/repodata/repomd.xml.key \
   https://pkgs.k8s.io/core:/stable:/v1.31/rpm/ \
   kubernetes
 
 sudo zypper refresh
 
 echo "=== Installing Kubernetes components ==="
-sudo zypper install -y kubelet kubeadm kubectl
+sudo zypper install -y kubelet kubeadm kubectl helm
 
 # Lock Kubernetes packages to prevent accidental upgrades
-sudo zypper addlock kubelet kubeadm kubectl
+sudo zypper addlock kubelet kubeadm kubectl helm
 
 # Enable kubelet service
 sudo systemctl enable kubelet
@@ -133,52 +136,56 @@ sudo systemctl enable kubelet
 if [ "$ENABLE_SWAP" = true ]; then
   echo "=== Configuring kubelet for swap support ==="
   
-  KUBELET_CONFIG="/var/lib/kubelet/config.yaml"
-  
   # Create kubelet config directory if it doesn't exist
   sudo mkdir -p /var/lib/kubelet
   
   # Create a drop-in configuration for kubelet
   sudo mkdir -p /etc/systemd/system/kubelet.service.d
   
-  cat <<EOF2 | sudo tee /etc/systemd/system/kubelet.service.d/20-swap.conf
+  sudo tee /etc/systemd/system/kubelet.service.d/20-swap.conf > /dev/null <<EOF
 [Service]
 Environment="KUBELET_EXTRA_ARGS=--fail-swap-on=false"
-EOF2
+EOF
   
   sudo systemctl daemon-reload
 fi
 
 if [[ "$ROLE" == "master" ]]; then
   # Step 7: Initialize Kubernetes cluster (only on master node)
-  echo "=== Configuring firewall for master node ==="
-  
-  # SUSE uses firewalld
-  sudo systemctl enable firewalld
-  sudo systemctl start firewalld
-  
-  # Open required ports for Kubernetes master
-  sudo firewall-cmd --permanent --add-port=6443/tcp    # Kubernetes API server
-  sudo firewall-cmd --permanent --add-port=2379-2380/tcp  # etcd server client API
-  sudo firewall-cmd --permanent --add-port=10250/tcp   # Kubelet API
-  sudo firewall-cmd --permanent --add-port=10259/tcp   # kube-scheduler
-  sudo firewall-cmd --permanent --add-port=10257/tcp   # kube-controller-manager
-  sudo firewall-cmd --reload
-  
+  # Capture the output of kubeadm init
   echo "=== Initializing Kubernetes cluster ==="
   if [ "$ENABLE_SWAP" = true ]; then
-    sudo kubeadm init --pod-network-cidr=10.10.0.0/16 --ignore-preflight-errors=Swap
+    INIT_OUTPUT=$(sudo kubeadm init --pod-network-cidr=10.10.0.0/16 --ignore-preflight-errors=Swap)
   else
-    sudo kubeadm init --pod-network-cidr=10.10.0.0/16
+    INIT_OUTPUT=$(sudo kubeadm init --pod-network-cidr=10.10.0.0/16)
   fi
+  # Print the full output so the user can see it
+  echo "$INIT_OUTPUT"
 
-  mkdir -p $HOME/.kube
-  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+  # Create kube config file
+  mkdir -p "$HOME/.kube"
+  sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
+  sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+
+  # Clean and print the JOIN command at the very end
+  echo ""
+  echo "=== JOIN COMMAND FOR ANSIBLE ==="
+  # This extracts the join command, removes backslashes, tabs, and newlines
+  echo "$INIT_OUTPUT" | grep -A 2 "kubeadm join" | tr -d '\\' | tr -d '\t' | tr '\n' ' ' | sed 's/  */ /g'
+  echo ""
 
   # Configure kubelet config.yaml for swap after kubeadm init
   if [ "$ENABLE_SWAP" = true ]; then
     KUBELET_CONFIG="/var/lib/kubelet/config.yaml"
+    
+    # Wait for kubelet config to be created
+    echo "Waiting for kubelet configuration file..."
+    for i in {1..30}; do
+      if [ -f "$KUBELET_CONFIG" ]; then
+        break
+      fi
+      sleep 1
+    done
     
     if [ -f "$KUBELET_CONFIG" ]; then
       echo "Updating kubelet configuration for swap..."
@@ -193,48 +200,33 @@ if [[ "$ROLE" == "master" ]]; then
       
       # Add memorySwap configuration if not present
       if ! grep -q "memorySwap:" "$KUBELET_CONFIG"; then
-        cat << EOF3 | sudo tee -a "$KUBELET_CONFIG" > /dev/null
+        sudo tee -a "$KUBELET_CONFIG" > /dev/null <<EOF
 memorySwap:
   swapBehavior: LimitedSwap
-EOF3
+EOF
       fi
       
       sudo systemctl restart kubelet
       echo "Kubelet restarted with swap support"
+    else
+      echo "Warning: Kubelet config file not found after waiting"
     fi
   fi
-
-  # Step 8: Install Calico network add-on plugin
-  #kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
-  #curl https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml -O
-  #sed -i 's/cidr: 192\.168\.0\.0\/16/cidr: 10.10.0.0\/16/g' custom-resources.yaml
-  #kubectl create -f custom-resources.yaml
 
   echo ""
   echo "=== Master setup complete ==="
   echo "To add workers, run the displayed 'kubeadm join' command on each worker node."
   echo ""
-  echo "Join command will be displayed above. Save it for worker nodes."
+  echo "The join command was displayed above. Save it for worker nodes."
 else
   # Worker node flow
-  echo "=== Configuring firewall for worker node ==="
-  
-  # SUSE uses firewalld
-  sudo systemctl enable firewalld
-  sudo systemctl start firewalld
-  
-  # Open required ports for Kubernetes worker
-  sudo firewall-cmd --permanent --add-port=10250/tcp   # Kubelet API
-  sudo firewall-cmd --permanent --add-port=30000-32767/tcp  # NodePort Services
-  sudo firewall-cmd --reload
-  
   if [ -z "$JOIN_CMD" ]; then
     echo "No join command provided. Paste the full 'kubeadm join ...' command (including sudo if required), then press Enter:"
     read -r JOIN_CMD
   fi
 
   if [ -z "$JOIN_CMD" ]; then
-    echo "No join command supplied. Exiting."
+    echo "Error: No join command supplied. Exiting."
     exit 1
   fi
 
@@ -247,11 +239,26 @@ else
     fi
   fi
   
-  eval "$JOIN_CMD"
+  echo "Executing: $JOIN_CMD"
+  if eval "$JOIN_CMD"; then
+    echo "Join command executed successfully"
+  else
+    echo "Error: Join command failed"
+    exit 1
+  fi
 
   # Configure kubelet config.yaml for swap after joining
   if [ "$ENABLE_SWAP" = true ]; then
     KUBELET_CONFIG="/var/lib/kubelet/config.yaml"
+    
+    # Wait for kubelet config to be created
+    echo "Waiting for kubelet configuration file..."
+    for i in {1..30}; do
+      if [ -f "$KUBELET_CONFIG" ]; then
+        break
+      fi
+      sleep 1
+    done
     
     if [ -f "$KUBELET_CONFIG" ]; then
       echo "Updating kubelet configuration for swap..."
@@ -266,18 +273,20 @@ else
       
       # Add memorySwap configuration if not present
       if ! grep -q "memorySwap:" "$KUBELET_CONFIG"; then
-        cat << EOF4 | sudo tee -a "$KUBELET_CONFIG" > /dev/null
+        sudo tee -a "$KUBELET_CONFIG" > /dev/null <<EOF
 memorySwap:
   swapBehavior: LimitedSwap
-EOF4
+EOF
       fi
       
       sudo systemctl restart kubelet
       echo "Kubelet restarted with swap support"
+    else
+      echo "Warning: Kubelet config file not found after waiting"
     fi
   fi
 
-  echo "Worker node has joined the cluster (if the join command succeeded)."
+  echo "Worker node has joined the cluster successfully."
 fi
 
 echo ""
@@ -291,6 +300,7 @@ fi
 
 echo ""
 echo "SUSE-specific notes:"
-echo "- Using firewalld instead of ufw"
 echo "- Using zypper for package management"
 echo "- Kubernetes packages locked with 'zypper addlock'"
+echo "- Firewalld is DISABLED (Kubernetes CNI will manage network security)"
+echo "- DNS configured with Google DNS (8.8.8.8) for reliability"
