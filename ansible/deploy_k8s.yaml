@@ -1,0 +1,70 @@
+---
+- name: Prepare and Initialize Master
+  hosts: masters
+  become: yes
+  tasks:
+    - name: Download the SUSE K8s setup script
+      get_url:
+        url: https://raw.githubusercontent.com/Ascendra-Networks/customer-deployment/master/scripts/install_k8s_node_suse.sh
+        dest: /tmp/setup_k8s.sh
+        mode: '0755'
+
+    - name: Run setup script on Master
+      command: /tmp/setup_k8s.sh master
+      register: master_output
+
+    - name: Extract Join Command
+      set_fact:
+        # 1. Search for the line after our custom header
+        # 2. Grab only the line starting with 'kubeadm join'
+        # 3. Use 'last' to ensure we don't get the usage example from the top
+        join_cmd: "{{ master_output.stdout | regex_findall('^kubeadm join .*', multiline=True) | last | trim }}"
+
+    - name: Debug Captured Join Command
+      debug:
+        msg: "The command being sent to workers is: sudo {{ join_cmd }}"
+
+    - name: Create kube directory for ubuntu user
+      file:
+        path: "/home/ubuntu/.kube"
+        state: directory
+        owner: ubuntu
+        group: users
+        mode: '0755'
+
+    - name: Copy admin.conf to ubuntu home
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        group: users
+        mode: '0600'
+
+- name: Initialize Workers
+  hosts: workers
+  become: yes
+  tasks:
+    - name: Download script on Workers
+      get_url:
+        url: https://raw.githubusercontent.com/Ascendra-Networks/customer-deployment/master/scripts/install_k8s_node_suse.sh
+        dest: /tmp/setup_k8s.sh
+        mode: '0755'
+
+    - name: Run setup script on Workers
+      # Using 'shell' handles the quotes and variables better than 'command'
+      shell: /tmp/setup_k8s.sh worker "sudo {{ hostvars[groups['masters'][0]]['join_cmd'] }}"
+
+- name: Final Verification
+  hosts: masters
+  tasks:
+    - name: Show Nodes Status (Expected to be NotReady)
+      # We run this as the ubuntu user to verify the config works
+      become: yes
+      become_user: ubuntu
+      command: kubectl get nodes
+      register: nodes_list
+
+    - name: Display Nodes
+      debug:
+        msg: "{{ nodes_list.stdout_lines }}"
