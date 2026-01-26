@@ -53,21 +53,29 @@ kubectl wait --for=condition=available --timeout=60s deployment/metrics-server -
 ```
 
 ## Deploy Dashboard
-1. Make sure Metrics API is up and running -
+1. Create monitoring namespace
+```bash
+kubectl create namespace monitoring
+```
+2. Create github secret for monitoring namespace
+```bash
+kubectl create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username=ascendra-networks   --docker-password="$GHCR_TOKEN" --namespace monitoring
+```
+3. Make sure Metrics API is up and running -
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 ```
-2. make sure rancher local is running -
+4. make sure rancher local is running -
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml
 ```
-3. patch it -
+5. patch it -
 ```bash
 kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
-4. Deploy dashbaord -
+6. Deploy dashbaord -
 ```bash
-helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.1   --namespace monitoring   --create-namespace
+helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.4 --namespace monitoring --create-namespace --set github.createSecret=true --set github.token="$GHCR_TOKEN" --set imagePullSecrets[0].name=ghcr-secret
 ```
 
 ## Persistent Storage
