@@ -56,7 +56,7 @@ kubectl wait --for=condition=available --timeout=60s deployment/metrics-server -
 1. Make sure Metrics API is up and running - ```kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml```
 2. make sure rancher local is running - ```kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml ```
 3. patch it - ```kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' ```
-4.Deploy dashbaord - ```helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.1   --namespace monitoring   --create-namespace ```
+4. Deploy dashbaord - ```helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.1   --namespace monitoring   --create-namespace ```
 
 ## Persistent Storage
 Longhorn with Local Disks (https://claude.ai/share/e5eb215b-ea38-430b-99dc-85fc019cabb9?)
