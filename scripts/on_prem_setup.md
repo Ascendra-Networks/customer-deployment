@@ -57,15 +57,15 @@ kubectl wait --for=condition=available --timeout=60s deployment/metrics-server -
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 ```
-3. make sure rancher local is running -
+2. make sure rancher local is running -
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml
 ```
-4. patch it -
+3. patch it -
 ```bash
 kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
-5. Deploy dashbaord -
+4. Deploy dashbaord -
 ```bash
 helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.1   --namespace monitoring   --create-namespace
 ```
