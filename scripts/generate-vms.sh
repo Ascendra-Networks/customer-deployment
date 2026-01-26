@@ -303,8 +303,9 @@ spec:
       annotations:
         # MANDATORY for seamless live migration in Kube-OVN
         kubevirt.io/allow-pod-bridge-network-live-migration: "true"
-        #"ovn.kubernetes.io/logical_switch": "vm-vpc-subnet"
+        #"ovn.kubernetes.io/logical_switch": "vm-subnet"
     spec:
+      evictionStrategy: LiveMigrate  # This enables automatic migration on drain
       domain:
         cpu:
           cores: ${CPU_CORES}
