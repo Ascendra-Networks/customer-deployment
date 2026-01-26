@@ -28,14 +28,32 @@ metadata:
   namespace: tyr-system
 spec:
   kubeOvn:
-    version: ""
+    version: "v1.14.5"
   kubeVirt:
-    imageTag: v1.6.0-ascendra.1
+    imageTag: "v1.7.0-ascendra.0"
     imagePullPolicy: Always
     cpuAllocationRatio: 8
     githubTokenRef:
-      name: tyr-github  # Secret must be in same namespace as InfraManager
+      name: tyr-github
       key: token
+    kubeVirtSpec:
+      configuration:
+        # Adding the requested migration settings
+        migrations:
+          autoConverge: true
+          autoConvergeInitial: 90
+          autoConvergeIncrement: 50
+          # SAFE ALTERNATIVE TO POST-COPY:
+          # This allows the controller to pause the VM to force completion
+          # when convergence isn't happening naturally.
+          allowWorkloadDisruption: true
+          allowPostCopy: false
+          # REMOVE NETWORK BOTTLENECKS:
+          # 0 means unlimited bandwidth.
+          bandwidthPerMigration: 0
+          # CONTROL THE TIMEOUT:
+          # Seconds per GiB before the "Pause" strategy is triggered.
+          completionTimeoutPerGiB: 30
 EOF
 ```
 
