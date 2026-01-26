@@ -53,10 +53,10 @@ kubectl wait --for=condition=available --timeout=60s deployment/metrics-server -
 ```
 
 ## Deploy Dashboard
-```bash
-helm install ascendra-cluster-dashboard   oci://ghcr.io/ascendra-networks/charts/ascendra-cluster-dashboard   --version 1.0.0   --namespace ascendra-dashboard   --create-namespace   --set github.createSecret=true   --set github.token="$GHCR_TOKEN"
-kubectl port-forward -n ascendra-dashboard service/ascendra-cluster-dashboard-frontend 8080:80
-```
+1. Make sure Metrics API is up and running
+2. make sure rancher local is running - ```bash  kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.34/deploy/local-path-storage.yaml ```
+3. patch it - ```bash kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' ```
+4. ```bash helm install management-dashboard   oci://ghcr.io/ascendra-networks/charts/management-dashboard   --version 1.4.1   --namespace monitoring   --create-namespace ```
 
 ## Persistent Storage
 Longhorn with Local Disks (https://claude.ai/share/e5eb215b-ea38-430b-99dc-85fc019cabb9?)
