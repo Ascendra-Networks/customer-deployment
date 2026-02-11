@@ -304,6 +304,8 @@ spec:
         # MANDATORY for seamless live migration in Kube-OVN
         kubevirt.io/allow-pod-bridge-network-live-migration: "true"
         #"ovn.kubernetes.io/logical_switch": "vm-subnet"
+        # This locks the IP so your FIP rule never breaks
+        # ovn.kubernetes.io/ip_address: "10.17.3.50"
     spec:
       evictionStrategy: LiveMigrate  # This enables automatic migration on drain
       domain:
