@@ -15,7 +15,7 @@ kubectl create secret docker-registry ghcr-secret   --docker-server=ghcr.io   --
 # 2. Login to Helm OCI registry
 echo "$GHCR_TOKEN" | helm registry login ghcr.io -u ascendra-networks --password-stdin
 # 3. Install directly from OCI registry
-helm install tyr oci://ghcr.io/ascendra-networks/charts/tyr   --version 1.0.3   --namespace tyr-system   --create-namespace   --set github.createSecret=true   --set github.token="$GHCR_TOKEN"   --set imagePullSecrets[0].name=ghcr-secret
+helm install tyr oci://ghcr.io/ascendra-networks/charts/tyr   --version 1.0.5   --namespace tyr-system   --create-namespace   --set github.createSecret=true   --set github.token="$GHCR_TOKEN"   --set imagePullSecrets[0].name=ghcr-secret
 # 4. Apply CR
 kubectl apply -f - <<EOF
 apiVersion: infra.ascendra.cloud/v1alpha1
@@ -23,12 +23,11 @@ kind: InfraManager
 metadata:
   labels:
     app.kubernetes.io/name: tyr
-    app.kubernetes.io/managed-by: kustomize
   name: inframanager-sample
   namespace: tyr-system
 spec:
   kubeOvn:
-    version: "v1.14.5"
+    version: ""
   kubeVirt:
     imageTag: "v1.7.0-ascendra.0"
     imagePullPolicy: Always
@@ -40,7 +39,7 @@ spec:
       configuration:
         # Adding the requested migration settings
         migrations:
-          autoConverge: true
+          allowAutoConverge: true
           autoConvergeInitial: 90
           autoConvergeIncrement: 50
           # SAFE ALTERNATIVE TO POST-COPY:
