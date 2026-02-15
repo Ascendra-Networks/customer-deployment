@@ -27,6 +27,7 @@ STABLE_NODE="labcp0"            # Name of node on which to anchor (force schedul
 ## Step 1: Install Multus CNI
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset.yml
+kubectl rollout status daemonset/kube-multus-ds -n kube-system --timeout=60s
 ```
 
 ## Step 2: Configure MacVTap Interface
@@ -100,7 +101,7 @@ spec:
   protocol: IPv4
   cidrBlock: $EXT_IP_RANGE
   gateway: $EXT_GW
-  provider: external-subnet.kube-system
+  provider: ovn-vpc-external-network.kube-system
   excludeIps: ["192.168.10.1..192.168.10.99"]
 ---
 apiVersion: kubeovn.io/v1
